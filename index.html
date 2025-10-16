@@ -199,6 +199,38 @@
           panActive = false; lastPan = null;
         });
 
+        // Device orientation (gyro) look for mobile when not in XR
+        let gyroEnabled = false;
+        let gyroBase = null; // { alpha, beta }
+        function handleOrientation(ev) {
+          if (app.xr && app.xr.active) return;
+          if (!gyroEnabled) return;
+          const { alpha, beta } = ev; // alpha: yaw (0-360), beta: pitch (-180..180)
+          if (alpha == null || beta == null) return;
+          if (!gyroBase) gyroBase = { alpha, beta };
+          // Compute deltas from base
+          let yaw = (alpha - gyroBase.alpha);
+          if (yaw > 180) yaw -= 360; if (yaw < -180) yaw += 360;
+          let pitch = (beta - gyroBase.beta);
+          // Apply to look variables (scale for sensitivity)
+          const gyroScale = 0.6; // tune if needed
+          lookY = yaw * gyroScale;
+          lookX = pc.math.clamp(pitch * gyroScale, -89, 89);
+          pivotYaw.setLocalEulerAngles(0, lookY, 0);
+          pivotPitch.setLocalEulerAngles(lookX, 0, 0);
+        }
+        async function enableGyroLookIfPossible() {
+          if (!(isMobile())) return;
+          try {
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+              const perm = await DeviceOrientationEvent.requestPermission().catch(() => 'denied');
+              if (perm !== 'granted') return; // fall back to touch
+            }
+            window.addEventListener('deviceorientation', handleOrientation);
+            gyroEnabled = true;
+          } catch (_) { /* ignore, fallback to touch */ }
+        }
+
         // UI bindings for look
         const sensSlider = document.getElementById('mouseSens');
         sensSlider.addEventListener('input', () => { lookSensitivity = parseFloat(sensSlider.value); });
@@ -607,6 +639,11 @@
         // XR events
         app.xr.on('start', () => {
           updateVrButtonVisibility();
+          // disable gyro while in XR
+          if (gyroEnabled) {
+            window.removeEventListener('deviceorientation', handleOrientation);
+            gyroEnabled = false;
+          }
           // Create visuals for hands/controllers if input is available
           controllers.length = 0;
           const input = app.xr.input;
@@ -620,6 +657,9 @@
           updateVrButtonVisibility();
           controllers.forEach(c => c.entity.destroy());
           controllers.length = 0;
+          // re-enable gyro after XR ends
+          gyroBase = null; // reset reference
+          enableGyroLookIfPossible();
         });
 
         // Per-frame update controller poses
@@ -688,6 +728,17 @@
           if (!cardboardEnabled && !(app.xr && app.xr.active)) {
             enableCardboard();
             updateVrButtonVisibility();
+          }
+          // Initialize gyro; if iOS requires gesture, fallback to one-time prompt
+          enableGyroLookIfPossible();
+          if (!gyroEnabled) {
+            const once = async () => {
+              window.removeEventListener('touchend', once);
+              window.removeEventListener('click', once);
+              await enableGyroLookIfPossible();
+            };
+            window.addEventListener('touchend', once, { once: true });
+            window.addEventListener('click', once, { once: true });
           }
         }
       })();
