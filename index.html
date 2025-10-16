@@ -487,11 +487,16 @@
 
         // XR setup
         const vrBtn = document.getElementById('vrBtn');
+        let xrSupported = false;
+        function isMobile() {
+          return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+        }
         function updateVrButtonVisibility() {
-          const supported = app.xr && app.xr.isAvailable(pc.XRTYPE_VR);
-          vrBtn.hidden = !supported || (app.xr && app.xr.active);
-          vrBtn.disabled = !supported;
-          vrBtn.textContent = app.xr && app.xr.active ? 'In VR' : 'Enter VR';
+          const active = !!(app.xr && app.xr.active) || !!cardboardEnabled;
+          const show = xrSupported || isMobile();
+          vrBtn.hidden = !show || active;
+          vrBtn.disabled = !show;
+          vrBtn.textContent = active ? 'In VR' : (xrSupported ? 'Enter VR' : 'Enter Cardboard');
         }
 
         async function enterVr() {
@@ -504,7 +509,14 @@
           }
         }
 
-        vrBtn.addEventListener('click', () => { enterVr(); });
+        vrBtn.addEventListener('click', async () => {
+          if (xrSupported) {
+            await enterVr();
+          } else {
+            if (!cardboardEnabled) enableCardboard(); else disableCardboard();
+            updateVrButtonVisibility();
+          }
+        });
 
         // XR events
         app.xr.on('start', () => {
@@ -578,22 +590,24 @@
 
         // Check support and show button
         if ('xr' in navigator) {
-          navigator.xr.isSessionSupported('immersive-vr').then(() => {
-            updateVrButtonVisibility();
-          }).catch(() => updateVrButtonVisibility());
+          navigator.xr.isSessionSupported('immersive-vr')
+            .then((supported) => { xrSupported = !!supported; updateVrButtonVisibility(); })
+            .catch(() => { xrSupported = false; updateVrButtonVisibility(); });
         } else {
+          xrSupported = false;
           updateVrButtonVisibility();
-        }
-
-        function isMobile() {
-          return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
         }
 
         if (isMobile()) {
           const gestureHandler = async () => {
             window.removeEventListener('touchend', gestureHandler);
             window.removeEventListener('click', gestureHandler);
-            try { await enterVr(); } catch (e) {}
+            if (xrSupported) {
+              try { await enterVr(); } catch (e) { /* ignore */ }
+            } else {
+              if (!cardboardEnabled) enableCardboard();
+              updateVrButtonVisibility();
+            }
           };
           window.addEventListener('touchend', gestureHandler, { once: true });
           window.addEventListener('click', gestureHandler, { once: true });
