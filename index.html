@@ -9,7 +9,7 @@
       #app { width: 100%; height: 100%; position: relative; overflow: hidden; }
       /* VR button now lives inside #panel and uses panel button styles */
       #note { position: absolute; right: 16px; bottom: 16px; opacity: .8; font-size: 12px; max-width: 320px; text-align: right; }
-      #panel { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,.45); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.08); padding: 10px; border-radius: 10px; display: grid; gap: 8px; width: 320px; }
+      #panel { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,.45); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.08); padding: 10px; border-radius: 10px; display: none; gap: 8px; width: 320px; }
       #panel .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
       #panel button, #panel input, #panel label, #panel select { font-size: 12px; }
       #panel button { padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,.15); background: #374151; color: #fff; cursor: pointer; }
@@ -519,6 +519,10 @@
           camRight = mkCam('CamRight', new pc.Vec4(0.5, 0, 0.5, 1), 0.032);
           ui.btnCardboard.textContent = 'Disable Cardboard';
           cardboardEnabled = true;
+          // try fullscreen on Cardboard for immersive view
+          enterFullscreen();
+          // hide note while in Cardboard
+          document.getElementById('note')?.setAttribute('style','display:none');
         }
         function disableCardboard() {
           if (!cardboardEnabled) return;
@@ -527,6 +531,8 @@
           camera.enabled = true;
           ui.btnCardboard.textContent = 'Enable Cardboard';
           cardboardEnabled = false;
+          // show note back
+          document.getElementById('note')?.setAttribute('style','');
         }
         ui.btnCardboard.addEventListener('click', () => {
           if (app.xr && app.xr.active) return; // ignore in VR
@@ -594,6 +600,14 @@
         function isMobile() {
           return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
         }
+        async function enterFullscreen() {
+          const el = document.documentElement;
+          try {
+            if (el.requestFullscreen) await el.requestFullscreen();
+            else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
+            else if (el.msRequestFullscreen) await el.msRequestFullscreen();
+          } catch (_) { /* ignore */ }
+        }
         function updateVrButtonVisibility() {
           const active = !!(app.xr && app.xr.active) || !!cardboardEnabled;
           const show = xrSupported || isMobile();
@@ -639,6 +653,10 @@
         // XR events
         app.xr.on('start', () => {
           updateVrButtonVisibility();
+          enterFullscreen();
+          autoWalk = isMobile(); // enable auto-walk by default on mobile in XR
+          // hide note in XR
+          document.getElementById('note')?.setAttribute('style','display:none');
           // disable gyro while in XR
           if (gyroEnabled) {
             window.removeEventListener('deviceorientation', handleOrientation);
@@ -660,9 +678,13 @@
           // re-enable gyro after XR ends
           gyroBase = null; // reset reference
           enableGyroLookIfPossible();
+          autoWalk = false;
+          // show note back
+          document.getElementById('note')?.setAttribute('style','');
         });
 
-        // Per-frame update controller poses
+        // Per-frame update controller poses and auto-walk
+        let autoWalk = false;
         app.on('update', dt => {
           if (app.xr && app.xr.active) {
             const input = app.xr.input;
@@ -676,6 +698,12 @@
                 c.entity.enabled = false;
               }
             });
+            // Auto-walk in XR
+            if (autoWalk) {
+              const forward = pivotYaw.forward.clone(); forward.y = 0; forward.normalize();
+              const move = forward.scale(1.6 * dt);
+              pivotYaw.translate(move);
+            }
           } else {
             const forward = pivotYaw.forward.clone(); forward.y = 0; forward.normalize();
             const right = pivotYaw.right.clone(); right.y = 0; right.normalize();
@@ -684,6 +712,7 @@
             if (keys['KeyS']) move.sub(forward);
             if (keys['KeyA']) move.sub(right);
             if (keys['KeyD']) move.add(right);
+            if (autoWalk) move.add(forward.scale(0.8));
             if (move.lengthSq() > 0) {
               move.normalize().scale(moveSpeed * dt);
               pivotYaw.translate(move);
