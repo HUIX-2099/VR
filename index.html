@@ -17,6 +17,7 @@
       #panel input[type="color"] { width: 100%; height: 28px; border: none; padding: 0; background: transparent; }
       #panel input[type="range"] { width: 100%; }
       #panel small { opacity: .8; }
+      canvas { touch-action: none; }
     </style>
     <script src="https://code.playcanvas.com/playcanvas-stable.min.js"></script>
   </head>
@@ -127,6 +128,72 @@
             pivotYaw.setLocalEulerAngles(0, lookY, 0);
             pivotPitch.setLocalEulerAngles(lookX, 0, 0);
           }
+        });
+
+        // Touch look controls for mobile
+        let touchActive = false;
+        let lastTouch = null;
+        let panActive = false; // two-finger movement
+        let lastPan = null;    // average position of two touches
+        canvas.addEventListener('touchstart', (e) => {
+          if (app.xr && app.xr.active) return;
+          if (e.touches.length === 1) {
+            const t = e.touches[0];
+            if (!t) return;
+            touchActive = true;
+            lastTouch = { x: t.clientX, y: t.clientY };
+          } else if (e.touches.length >= 2) {
+            // start two-finger pan for movement
+            const ax = (e.touches[0].clientX + e.touches[1].clientX) * 0.5;
+            const ay = (e.touches[0].clientY + e.touches[1].clientY) * 0.5;
+            panActive = true;
+            lastPan = { x: ax, y: ay };
+          }
+          e.preventDefault();
+        }, { passive: false });
+        canvas.addEventListener('touchmove', (e) => {
+          if (app.xr && app.xr.active) return;
+          if (e.touches.length === 1 && touchActive) {
+            const t = e.touches[0];
+            if (!t || !lastTouch) return;
+            const dx = t.clientX - lastTouch.x;
+            const dy = t.clientY - lastTouch.y;
+            lookY += dx * lookSensitivity * 0.5;
+            lookX += (invertY ? dy : -dy) * lookSensitivity * 0.5;
+            if (lookX > 89) lookX = 89; if (lookX < -89) lookX = -89;
+            pivotYaw.setLocalEulerAngles(0, lookY, 0);
+            pivotPitch.setLocalEulerAngles(lookX, 0, 0);
+            lastTouch = { x: t.clientX, y: t.clientY };
+          } else if (e.touches.length >= 2) {
+            // two-finger pan movement
+            const ax = (e.touches[0].clientX + e.touches[1].clientX) * 0.5;
+            const ay = (e.touches[0].clientY + e.touches[1].clientY) * 0.5;
+            if (!panActive || !lastPan) {
+              panActive = true;
+              lastPan = { x: ax, y: ay };
+            } else {
+              const dx = ax - lastPan.x;
+              const dy = ay - lastPan.y;
+              // Movement sensitivity tuning
+              const moveScale = 0.01;
+              const forward = pivotYaw.forward.clone(); forward.y = 0; forward.normalize();
+              const right = pivotYaw.right.clone(); right.y = 0; right.normalize();
+              const move = new pc.Vec3(0,0,0);
+              // Vertical drag: forward/back; Horizontal: strafe
+              move.add(forward.scale(-dy * moveScale));
+              move.add(right.scale(dx * moveScale));
+              if (move.lengthSq() > 0) {
+                pivotYaw.translate(move);
+              }
+              lastPan = { x: ax, y: ay };
+            }
+          }
+          e.preventDefault();
+        }, { passive: false });
+        canvas.addEventListener('touchend', () => {
+          if (event.touches && event.touches.length > 0) return;
+          touchActive = false; lastTouch = null;
+          panActive = false; lastPan = null;
         });
 
         // UI bindings for look
