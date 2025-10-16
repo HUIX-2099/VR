@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>PlayCanvas VR Demo</title>
+    <style>
+      html, body { height: 100%; margin: 0; background: #202225; color: #e6e6e6; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      #app { width: 100%; height: 100%; position: relative; overflow: hidden; }
+      #vrBtn { position: absolute; left: 16px; bottom: 16px; padding: 10px 14px; border-radius: 8px; border: 0; background: #4f46e5; color: #fff; cursor: pointer; font-weight: 600; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+      #vrBtn[disabled] { background: #6b7280; cursor: not-allowed; }
+      #note { position: absolute; right: 16px; bottom: 16px; opacity: .8; font-size: 12px; max-width: 320px; text-align: right; }
+      #panel { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,.45); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.08); padding: 10px; border-radius: 10px; display: grid; gap: 8px; width: 320px; }
+      #panel .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      #panel button, #panel input, #panel label, #panel select { font-size: 12px; }
+      #panel button { padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,.15); background: #374151; color: #fff; cursor: pointer; }
+      #panel button:hover { background: #4b5563; }
+      #panel input[type="color"] { width: 100%; height: 28px; border: none; padding: 0; background: transparent; }
+      #panel input[type="range"] { width: 100%; }
+      #panel small { opacity: .8; }
+    </style>
+    <script src="https://code.playcanvas.com/playcanvas-stable.min.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="canvas"></canvas>
+      <button id="vrBtn" hidden>Enter VR</button>
+      <div id="note">Use a WebXR-capable browser (HTTPS or localhost). On desktop, use a headset (OpenXR). On mobile, WebXR is required.</div>
+      <div id="panel">
+        <div class="row">
+          <button id="btnAmbient">Add Ambient</button>
+          <button id="btnDirectional">Add Directional</button>
+        </div>
+        <div class="row">
+          <button id="btnPoint">Add Point</button>
+          <button id="btnClearLights">Remove All Lights</button>
+        </div>
+        <div class="row">
+          <label>Light Color</label>
+          <input id="lightColor" type="color" value="#ffffff" />
+        </div>
+        <div class="row">
+          <label>Intensity</label>
+          <input id="lightIntensity" type="range" min="0" max="4" step="0.1" value="1.2" />
+        </div>
+        <div class="row">
+          <label>Mouse Sens.</label>
+          <input id="mouseSens" type="range" min="0.02" max="0.6" step="0.02" value="0.12" />
+        </div>
+        <div class="row">
+          <label><input id="invertY" type="checkbox" /> Invert Y</label>
+          <span style="opacity:.8;align-self:center;">Click canvas to look</span>
+        </div>
+        <hr style="opacity:.2;border:none;border-top:1px solid rgba(255,255,255,.15);">
+        <div class="row">
+          <label>Lights</label>
+          <select id="lightList"></select>
+        </div>
+        <div class="row">
+          <label>X</label>
+          <input id="posX" type="range" min="-20" max="20" step="0.1" value="0" />
+        </div>
+        <div class="row">
+          <label>Y</label>
+          <input id="posY" type="range" min="0" max="10" step="0.1" value="2" />
+        </div>
+        <div class="row">
+          <label>Z</label>
+          <input id="posZ" type="range" min="-20" max="20" step="0.1" value="0" />
+        </div>
+        <div class="row">
+          <button id="btnSave">Save</button>
+          <button id="btnLoad">Load</button>
+        </div>
+        <div class="row">
+          <button id="btnExport">Export JSON</button>
+          <button id="btnImport">Import JSON</button>
+        </div>
+        <div class="row">
+          <button id="btnCardboard">Enable Cardboard</button>
+          <small>Stereo split mode</small>
+        </div>
+        <input id="importFile" type="file" accept="application/json" style="display:none;" />
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        const canvas = document.getElementById('canvas');
+        const app = new pc.Application(canvas, {
+          graphicsDeviceOptions: { antialias: true, xrCompatibility: true }
+        });
+        app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
+        app.setCanvasResolution(pc.RESOLUTION_AUTO);
+        function resize() { app.resizeCanvas(); }
+        window.addEventListener('resize', resize);
+
+        // Scene
+        app.scene.gammaCorrection = pc.GAMMA_SRGB;
+        app.scene.toneMapping = pc.TONEMAP_ACES;
+        app.scene.skyboxMip = 2;
+
+        // Camera rig (yaw/pitch) for desktop look + move
+        const pivotYaw = new pc.Entity('PivotYaw');
+        const pivotPitch = new pc.Entity('PivotPitch');
+        const camera = new pc.Entity('Camera');
+        camera.addComponent('camera', { clearColor: new pc.Color(0.88, 0.93, 1) });
+        pivotYaw.addChild(pivotPitch);
+        pivotPitch.addChild(camera);
+        pivotYaw.setLocalPosition(0, 1.65, 4);
+        app.root.addChild(pivotYaw);
+
+        const keys = {};
+        let lookX = 0, lookY = 0;
+        let lookSensitivity = 0.12;
+        let invertY = false;
+        let moveSpeed = 2.5;
+        window.addEventListener('keydown', (e) => { keys[e.code] = true; if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') moveSpeed = 4.5; });
+        window.addEventListener('keyup', (e) => { keys[e.code] = false; if (!(keys['ShiftLeft'] || keys['ShiftRight'])) moveSpeed = 2.5; });
+        canvas.addEventListener('mousedown', () => { if (!app.xr || !app.xr.active) canvas.requestPointerLock?.(); });
+        window.addEventListener('mousemove', (e) => {
+          if (document.pointerLockElement === canvas && (!app.xr || !app.xr.active)) {
+            lookY += e.movementX * lookSensitivity;
+            lookX += (invertY ? e.movementY : -e.movementY) * lookSensitivity;
+            if (lookX > 89) lookX = 89; if (lookX < -89) lookX = -89;
+            pivotYaw.setLocalEulerAngles(0, lookY, 0);
+            pivotPitch.setLocalEulerAngles(lookX, 0, 0);
+          }
+        });
+
+        // UI bindings for look
+        const sensSlider = document.getElementById('mouseSens');
+        sensSlider.addEventListener('input', () => { lookSensitivity = parseFloat(sensSlider.value); });
+        const invertYChk = document.getElementById('invertY');
+        invertYChk.addEventListener('change', () => { invertY = invertYChk.checked; });
+
+        // Light
+        const light = new pc.Entity('Light');
+        light.addComponent('light', { type: 'directional', color: new pc.Color(1,1,1), intensity: 1.2, castShadows: true });
+        light.setLocalEulerAngles(45, 35, 0);
+        app.root.addChild(light);
+
+        // Light tools
+        const createdLights = [];
+        const ui = {
+          btnAmbient: document.getElementById('btnAmbient'),
+          btnDirectional: document.getElementById('btnDirectional'),
+          btnPoint: document.getElementById('btnPoint'),
+          btnClear: document.getElementById('btnClearLights'),
+          color: document.getElementById('lightColor'),
+          intensity: document.getElementById('lightIntensity'),
+          lightList: document.getElementById('lightList'),
+          posX: document.getElementById('posX'),
+          posY: document.getElementById('posY'),
+          posZ: document.getElementById('posZ'),
+          btnSave: document.getElementById('btnSave'),
+          btnLoad: document.getElementById('btnLoad'),
+          btnExport: document.getElementById('btnExport'),
+          btnImport: document.getElementById('btnImport'),
+          importFile: document.getElementById('importFile'),
+          btnCardboard: document.getElementById('btnCardboard')
+        };
+
+        function parseColor(hex) {
+          const c = pc.Color.fromString(hex);
+          return new pc.Color(c.r, c.g, c.b);
+        }
+
+        function addAmbient() {
+          const e = new pc.Entity('AmbientLight');
+          e.addComponent('light', {
+            type: 'ambient',
+            color: parseColor(ui.color.value),
+            intensity: parseFloat(ui.intensity.value)
+          });
+          app.root.addChild(e);
+          createdLights.push(e);
+          refreshLightList();
+          saveStateDebounced();
+        }
+
+        function addDirectional() {
+          const e = new pc.Entity('DirectionalLight');
+          e.addComponent('light', {
+            type: 'directional',
+            color: parseColor(ui.color.value),
+            intensity: parseFloat(ui.intensity.value),
+            castShadows: true
+          });
+          // Align to camera yaw/pitch
+          e.setPosition(pivotYaw.getPosition());
+          e.setRotation(pivotYaw.getRotation());
+          app.root.addChild(e);
+          createdLights.push(e);
+          refreshLightList();
+          saveStateDebounced();
+        }
+
+        function addPoint() {
+          const e = new pc.Entity('PointLight');
+          e.addComponent('light', {
+            type: 'point',
+            color: parseColor(ui.color.value),
+            intensity: parseFloat(ui.intensity.value),
+            range: 15
+          });
+          // Place in front of camera
+          const pos = pivotYaw.getPosition().clone();
+          const fwd = pivotYaw.forward.clone(); fwd.y = 0; fwd.normalize();
+          pos.add(fwd.scale(2));
+          e.setPosition(pos);
+          app.root.addChild(e);
+          createdLights.push(e);
+          refreshLightList();
+          saveStateDebounced();
+        }
+
+        function clearLights() {
+          createdLights.forEach(l => l.destroy());
+          createdLights.length = 0;
+          refreshLightList();
+          saveStateDebounced();
+        }
+
+        ui.btnAmbient.addEventListener('click', addAmbient);
+        ui.btnDirectional.addEventListener('click', addDirectional);
+        ui.btnPoint.addEventListener('click', addPoint);
+        ui.btnClear.addEventListener('click', clearLights);
+
+        // Light selection and transform controls
+        let lightsAll = [];
+        function collectAllLights() {
+          // include default light + created
+          lightsAll = [];
+          app.root.findComponents('light').forEach(comp => {
+            if (comp && comp.entity?.enabled) lightsAll.push(comp.entity);
+          });
+        }
+
+        function refreshLightList() {
+          collectAllLights();
+          ui.lightList.innerHTML = '';
+          lightsAll.forEach((ent, idx) => {
+            const opt = document.createElement('option');
+            opt.value = String(idx);
+            opt.textContent = `${ent.name || 'Light'} (${ent.light.type})`;
+            ui.lightList.appendChild(opt);
+          });
+          if (lightsAll.length > 0) {
+            ui.lightList.value = '0';
+            updateSlidersFromSelected();
+          }
+        }
+
+        function getSelectedLight() {
+          const idx = parseInt(ui.lightList.value || '0', 10);
+          return lightsAll[idx];
+        }
+
+        function updateSlidersFromSelected() {
+          const ent = getSelectedLight();
+          if (!ent) return;
+          const p = ent.getPosition();
+          ui.posX.value = p.x.toFixed(2);
+          ui.posY.value = p.y.toFixed(2);
+          ui.posZ.value = p.z.toFixed(2);
+        }
+
+        function applySliderToSelected() {
+          const ent = getSelectedLight();
+          if (!ent) return;
+          const x = parseFloat(ui.posX.value);
+          const y = parseFloat(ui.posY.value);
+          const z = parseFloat(ui.posZ.value);
+          ent.setLocalPosition(x, y, z);
+          saveStateDebounced();
+        }
+
+        ui.lightList.addEventListener('change', updateSlidersFromSelected);
+        ui.posX.addEventListener('input', applySliderToSelected);
+        ui.posY.addEventListener('input', applySliderToSelected);
+        ui.posZ.addEventListener('input', applySliderToSelected);
+
+        // JSON DB (localStorage) and import/export
+        const STATE_KEY = 'pc_vr_scene_state_v1';
+
+        function colorToHex(c) {
+          const r = Math.round(pc.math.clamp(c.r, 0, 1) * 255).toString(16).padStart(2, '0');
+          const g = Math.round(pc.math.clamp(c.g, 0, 1) * 255).toString(16).padStart(2, '0');
+          const b = Math.round(pc.math.clamp(c.b, 0, 1) * 255).toString(16).padStart(2, '0');
+          return `#${r}${g}${b}`;
+        }
+
+        function getState() {
+          collectAllLights();
+          const lightsState = lightsAll.map(ent => ({
+            name: ent.name,
+            type: ent.light.type,
+            color: colorToHex(ent.light.color),
+            intensity: ent.light.intensity,
+            castShadows: !!ent.light.castShadows,
+            range: ent.light.range ?? null,
+            pos: ent.getPosition().toArray(),
+            rotEuler: ent.getLocalEulerAngles().toArray()
+          }));
+          const cameraState = {
+            pos: pivotYaw.getPosition().toArray(),
+            lookX, lookY
+          };
+          const museumEnt = app.root.findByName('Museum');
+          const museumState = museumEnt ? {
+            pos: museumEnt.getPosition().toArray(),
+            scale: museumEnt.getLocalScale().toArray()
+          } : null;
+          return { lightsState, cameraState, museumState };
+        }
+
+        function applyState(state) {
+          if (!state) return;
+          // Clear created lights first
+          clearLights();
+          // Update or recreate lights
+          const defaultLight = app.root.findByName('Light');
+          state.lightsState?.forEach((ls, idx) => {
+            let ent = null;
+            if (defaultLight && idx === 0 && defaultLight.light.type === ls.type) {
+              ent = defaultLight;
+            }
+            if (!ent) {
+              ent = new pc.Entity(ls.name || 'Light');
+              ent.addComponent('light', { type: ls.type });
+              app.root.addChild(ent);
+              if (ent !== defaultLight) createdLights.push(ent);
+            }
+            ent.light.color = pc.Color.fromString(ls.color || '#ffffff');
+            ent.light.intensity = ls.intensity ?? 1;
+            ent.light.castShadows = !!ls.castShadows;
+            if (ent.light.type === 'point' && ls.range != null) ent.light.range = ls.range;
+            ent.setLocalPosition(new pc.Vec3().fromArray(ls.pos || [0,2,0]));
+            if (ls.rotEuler) ent.setLocalEulerAngles(new pc.Vec3().fromArray(ls.rotEuler));
+          });
+
+          if (state.cameraState) {
+            pivotYaw.setLocalPosition(new pc.Vec3().fromArray(state.cameraState.pos || [0,1.65,4]));
+            lookX = state.cameraState.lookX ?? lookX;
+            lookY = state.cameraState.lookY ?? lookY;
+            pivotYaw.setLocalEulerAngles(0, lookY, 0);
+            pivotPitch.setLocalEulerAngles(lookX, 0, 0);
+          }
+
+          if (state.museumState) {
+            const m = app.root.findByName('Museum');
+            if (m) {
+              m.setLocalPosition(new pc.Vec3().fromArray(state.museumState.pos || [0,0,0]));
+              m.setLocalScale(new pc.Vec3().fromArray(state.museumState.scale || [1,1,1]));
+            }
+          }
+
+          refreshLightList();
+        }
+
+        function saveState() {
+          const state = getState();
+          localStorage.setItem(STATE_KEY, JSON.stringify(state));
+        }
+        let saveTimer = null;
+        function saveStateDebounced() {
+          clearTimeout(saveTimer);
+          saveTimer = setTimeout(saveState, 300);
+        }
+        function loadState() {
+          try {
+            const raw = localStorage.getItem(STATE_KEY);
+            if (!raw) return;
+            const state = JSON.parse(raw);
+            applyState(state);
+          } catch (e) { console.warn('Failed to load state', e); }
+        }
+
+        ui.btnSave.addEventListener('click', () => { saveState(); });
+        ui.btnLoad.addEventListener('click', () => { loadState(); });
+        ui.btnExport.addEventListener('click', () => {
+          const blob = new Blob([JSON.stringify(getState(), null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = 'scene-state.json'; a.click();
+          URL.revokeObjectURL(url);
+        });
+        ui.btnImport.addEventListener('click', () => ui.importFile.click());
+        ui.importFile.addEventListener('change', (e) => {
+          const file = e.target.files?.[0]; if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            try { const state = JSON.parse(reader.result); applyState(state); saveState(); }
+            catch (err) { console.warn('Invalid JSON', err); }
+          };
+          reader.readAsText(file);
+          e.target.value = '';
+        });
+
+        // Cardboard stereo mode (dual cameras)
+        let cardboardEnabled = false;
+        let camLeft = null, camRight = null;
+        function enableCardboard() {
+          if (cardboardEnabled) return;
+          camera.enabled = false;
+          const mkCam = (name, rect, xOffset) => {
+            const e = new pc.Entity(name);
+            e.addComponent('camera', { clearColor: new pc.Color(0.88,0.93,1) });
+            e.camera.rect = rect; // [x, y, w, h]
+            pivotPitch.addChild(e);
+            e.setLocalPosition(xOffset, 0, 0);
+            return e;
+          };
+          camLeft = mkCam('CamLeft', new pc.Vec4(0, 0, 0.5, 1), -0.032);
+          camRight = mkCam('CamRight', new pc.Vec4(0.5, 0, 0.5, 1), 0.032);
+          ui.btnCardboard.textContent = 'Disable Cardboard';
+          cardboardEnabled = true;
+        }
+        function disableCardboard() {
+          if (!cardboardEnabled) return;
+          camLeft?.destroy(); camRight?.destroy();
+          camLeft = null; camRight = null;
+          camera.enabled = true;
+          ui.btnCardboard.textContent = 'Enable Cardboard';
+          cardboardEnabled = false;
+        }
+        ui.btnCardboard.addEventListener('click', () => {
+          if (app.xr && app.xr.active) return; // ignore in VR
+          if (!cardboardEnabled) enableCardboard(); else disableCardboard();
+        });
+
+        // Auto-disable Cardboard when entering XR
+        app.xr.on('start', () => { if (cardboardEnabled) disableCardboard(); });
+
+        // Initial UI state
+        refreshLightList();
+        loadState();
+
+        // Ground
+        const ground = new pc.Entity('Ground');
+        ground.addComponent('render', { type: 'plane', material: new pc.StandardMaterial() });
+        ground.setLocalScale(50, 1, 50);
+        ground.setLocalEulerAngles(-90, 0, 0);
+        app.root.addChild(ground);
+        ground.render.meshInstances[0].material.diffuse = new pc.Color(0.33, 0.8, 0.65);
+        ground.render.meshInstances[0].material.update();
+
+        // Box target in front
+        const box = new pc.Entity('Box');
+        box.addComponent('render', { type: 'box' });
+        box.setLocalPosition(0, 1.25, 0);
+        app.root.addChild(box);
+
+        app.assets.loadFromUrl('./museum.glb', 'container', (err, asset) => {
+          if (err) { console.warn('Failed to load museum.glb', err); return; }
+          const museum = asset.resource.instantiateRenderEntity();
+          museum.name = 'Museum';
+          museum.setLocalPosition(0, 0, 0);
+          museum.setLocalScale(1, 1, 1);
+          app.root.addChild(museum);
+        });
+
+        // Controller visual helpers
+        const controllers = [];
+        function createController(colorHex) {
+          const e = new pc.Entity('Controller');
+          e.addComponent('render', { type: 'capsule' });
+          e.setLocalScale(0.03, 0.15, 0.03);
+          const m = new pc.StandardMaterial();
+          m.diffuse = pc.Color.fromString(colorHex);
+          m.update();
+          e.render.meshInstances.forEach(mi => mi.material = m);
+          app.root.addChild(e);
+          return e;
+        }
+
+        // Input feedback: pulse box color on select
+        function pulse(entity, color, duration = 0.1) {
+          const mat = entity.render ? entity.render.meshInstances[0].material : null;
+          if (!mat) return;
+          const original = mat.diffuse.clone();
+          mat.diffuse.copy(color); mat.update();
+          setTimeout(() => { mat.diffuse.copy(original); mat.update(); }, duration * 1000);
+        }
+
+        // XR setup
+        const vrBtn = document.getElementById('vrBtn');
+        function updateVrButtonVisibility() {
+          const supported = app.xr && app.xr.isAvailable(pc.XRTYPE_VR);
+          vrBtn.hidden = !supported || (app.xr && app.xr.active);
+          vrBtn.disabled = !supported;
+          vrBtn.textContent = app.xr && app.xr.active ? 'In VR' : 'Enter VR';
+        }
+
+        vrBtn.addEventListener('click', async () => {
+          try {
+            await app.xr.start(pc.XRTYPE_VR, pc.XRSPACE_LOCAL);
+          } catch (e) {
+            console.warn('Failed to start VR', e);
+          } finally {
+            updateVrButtonVisibility();
+          }
+        });
+
+        // XR events
+        app.xr.on('start', () => {
+          updateVrButtonVisibility();
+          // Create visuals for hands/controllers if input is available
+          controllers.length = 0;
+          const input = app.xr.input;
+          ['left', 'right'].forEach((handedness, i) => {
+            const c = createController(i === 0 ? '#10b981' : '#3b82f6');
+            controllers.push({ handedness, entity: c });
+          });
+        });
+
+        app.xr.on('end', () => {
+          updateVrButtonVisibility();
+          controllers.forEach(c => c.entity.destroy());
+          controllers.length = 0;
+        });
+
+        // Per-frame update controller poses
+        app.on('update', dt => {
+          if (app.xr && app.xr.active) {
+            const input = app.xr.input;
+            controllers.forEach(c => {
+              const source = input && input[c.handedness];
+              if (source && source.grip) {
+                c.entity.enabled = true;
+                c.entity.setPosition(source.grip.getPosition());
+                c.entity.setRotation(source.grip.getRotation());
+              } else {
+                c.entity.enabled = false;
+              }
+            });
+          } else {
+            const forward = pivotYaw.forward.clone(); forward.y = 0; forward.normalize();
+            const right = pivotYaw.right.clone(); right.y = 0; right.normalize();
+            const move = new pc.Vec3(0,0,0);
+            if (keys['KeyW']) move.add(forward);
+            if (keys['KeyS']) move.sub(forward);
+            if (keys['KeyA']) move.sub(right);
+            if (keys['KeyD']) move.add(right);
+            if (move.lengthSq() > 0) {
+              move.normalize().scale(moveSpeed * dt);
+              pivotYaw.translate(move);
+            }
+          }
+        });
+
+        // Input events
+        app.on('xr:input:selectstart', (inputSource) => {
+          pulse(box, new pc.Color(1, 0.4, 0.4));
+        });
+        app.on('xr:input:squeezestart', (inputSource) => {
+          pulse(box, new pc.Color(0.4, 1, 0.6));
+        });
+
+        // Hook PlayCanvas XR input events
+        if (app.xr && app.xr.input) {
+          app.xr.input.on('selectstart', (src) => app.fire('xr:input:selectstart', src));
+          app.xr.input.on('squeezestart', (src) => app.fire('xr:input:squeezestart', src));
+        } else {
+          // If not ready yet, defer until XR starts
+          app.xr?.on('start', () => {
+            app.xr.input.on('selectstart', (src) => app.fire('xr:input:selectstart', src));
+            app.xr.input.on('squeezestart', (src) => app.fire('xr:input:squeezestart', src));
+          });
+        }
+
+        // Tick
+        app.start();
+
+        // Check support and show button
+        if ('xr' in navigator) {
+          navigator.xr.isSessionSupported('immersive-vr').then(() => {
+            updateVrButtonVisibility();
+          }).catch(() => updateVrButtonVisibility());
+        } else {
+          updateVrButtonVisibility();
+        }
+      })();
+    </script>
+  </body>
+</html>
