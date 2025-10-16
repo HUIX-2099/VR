@@ -7,8 +7,7 @@
     <style>
       html, body { height: 100%; margin: 0; background: #202225; color: #e6e6e6; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
       #app { width: 100%; height: 100%; position: relative; overflow: hidden; }
-      #vrBtn { position: absolute; left: 16px; bottom: 16px; padding: 10px 14px; border-radius: 8px; border: 0; background: #4f46e5; color: #fff; cursor: pointer; font-weight: 600; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
-      #vrBtn[disabled] { background: #6b7280; cursor: not-allowed; }
+      /* VR button now lives inside #panel and uses panel button styles */
       #note { position: absolute; right: 16px; bottom: 16px; opacity: .8; font-size: 12px; max-width: 320px; text-align: right; }
       #panel { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,.45); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.08); padding: 10px; border-radius: 10px; display: grid; gap: 8px; width: 320px; }
       #panel .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -24,9 +23,11 @@
   <body>
     <div id="app">
       <canvas id="canvas"></canvas>
-      <button id="vrBtn" hidden>Enter VR</button>
       <div id="note">Use a WebXR-capable browser (HTTPS or localhost). On desktop, use a headset (OpenXR). On mobile, WebXR is required.</div>
       <div id="panel">
+        <div class="row">
+          <button id="vrBtn" hidden>Enter VR</button>
+        </div>
         <div class="row">
           <button id="btnAmbient">Add Ambient</button>
           <button id="btnDirectional">Add Directional</button>
