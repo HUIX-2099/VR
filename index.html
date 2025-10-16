@@ -199,8 +199,14 @@
           }
           e.preventDefault();
         }, { passive: false });
-        canvas.addEventListener('touchend', () => {
+        let lastTapTime = 0;
+        canvas.addEventListener('touchend', (ev) => {
           if (event.touches && event.touches.length > 0) return;
+          const now = performance.now();
+          if (ev.changedTouches && ev.changedTouches.length === 1 && (now - lastTapTime) < 280) {
+            gyroBase = null; // double-tap to recenter gyro
+          }
+          lastTapTime = now;
           touchActive = false; lastTouch = null;
           panActive = false; lastPan = null;
         });
@@ -208,16 +214,28 @@
         // Device orientation (gyro) look for mobile when not in XR
         let gyroEnabled = false;
         let gyroBase = null; // { alpha, beta }
+        function isLandscape(){
+          const ang = (screen.orientation && typeof screen.orientation.angle === 'number') ? screen.orientation.angle : (typeof window.orientation === 'number' ? window.orientation : 0);
+          return Math.abs(ang) === 90;
+        }
         function handleOrientation(ev) {
           if (app.xr && app.xr.active) return;
           if (!gyroEnabled) return;
-          const { alpha, beta } = ev; // alpha: yaw (0-360), beta: pitch (-180..180)
-          if (alpha == null || beta == null) return;
-          if (!gyroBase) gyroBase = { alpha, beta };
-          // Compute deltas from base
-          let yaw = (alpha - gyroBase.alpha);
-          if (yaw > 180) yaw -= 360; if (yaw < -180) yaw += 360;
-          let pitch = (beta - gyroBase.beta);
+          const { alpha, beta, gamma } = ev; // alpha: yaw, beta/gamma depend on orientation
+          if (alpha == null || beta == null || gamma == null) return;
+          if (!gyroBase) gyroBase = { alpha, beta, gamma };
+          // Basic orientation compensation
+          let yaw, pitch;
+          if (isLandscape()) {
+            // Approximate mapping in landscape: use beta for yaw and -gamma for pitch relative to base
+            yaw = (beta - gyroBase.beta);
+            pitch = (-gamma) - (-gyroBase.gamma);
+          } else {
+            // Portrait: alpha ~ yaw, beta ~ pitch
+            yaw = (alpha - gyroBase.alpha);
+            if (yaw > 180) yaw -= 360; if (yaw < -180) yaw += 360;
+            pitch = (beta - gyroBase.beta);
+          }
           // Apply to look variables (scale for sensitivity)
           const gyroScale = 0.6; // tune if needed
           targetLookY = yaw * gyroScale;
@@ -646,6 +664,8 @@
         }
 
         async function handleVrToggle() {
+          // ensure fullscreen at user gesture
+          await enterFullscreen();
           if (xrSupported) {
             if (app.xr && app.xr.active) {
               try { await app.xr.end(); } catch (e) { console.warn('Failed to end XR', e); }
@@ -781,6 +801,7 @@
               window.removeEventListener('touchend', once);
               window.removeEventListener('click', once);
               await enableGyroLookIfPossible();
+              await enterFullscreen();
             };
             window.addEventListener('touchend', once, { once: true });
             window.addEventListener('click', once, { once: true });
