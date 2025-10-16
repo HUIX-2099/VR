@@ -475,7 +475,7 @@
           return e;
         }
 
-        // Input feedback: pulse box color on select
+        // Input feedback: pulse entity color on select
         function pulse(entity, color, duration = 0.1) {
           const mat = entity.render ? entity.render.meshInstances[0].material : null;
           if (!mat) return;
@@ -493,7 +493,7 @@
           vrBtn.textContent = app.xr && app.xr.active ? 'In VR' : 'Enter VR';
         }
 
-        async function enterVr() {
+        vrBtn.addEventListener('click', async () => {
           try {
             await app.xr.start(pc.XRTYPE_VR, pc.XRSPACE_LOCAL);
           } catch (e) {
@@ -501,9 +501,7 @@
           } finally {
             updateVrButtonVisibility();
           }
-        }
-
-        vrBtn.addEventListener('click', () => { enterVr(); });
+        });
 
         // XR events
         app.xr.on('start', () => {
@@ -523,7 +521,7 @@
           controllers.length = 0;
         });
 
-        // Per-frame update controller poses
+        // Per-frame update controller poses and desktop movement
         app.on('update', dt => {
           if (app.xr && app.xr.active) {
             const input = app.xr.input;
@@ -582,20 +580,6 @@
           }).catch(() => updateVrButtonVisibility());
         } else {
           updateVrButtonVisibility();
-        }
-
-        function isMobile() {
-          return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-        }
-
-        if (isMobile()) {
-          const gestureHandler = async () => {
-            window.removeEventListener('touchend', gestureHandler);
-            window.removeEventListener('click', gestureHandler);
-            try { await enterVr(); } catch (e) {}
-          };
-          window.addEventListener('touchend', gestureHandler, { once: true });
-          window.addEventListener('click', gestureHandler, { once: true });
         }
       })();
     </script>
