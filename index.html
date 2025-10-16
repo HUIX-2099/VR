@@ -599,18 +599,10 @@
         }
 
         if (isMobile()) {
-          const gestureHandler = async () => {
-            window.removeEventListener('touchend', gestureHandler);
-            window.removeEventListener('click', gestureHandler);
-            if (xrSupported) {
-              try { await enterVr(); } catch (e) { /* ignore */ }
-            } else {
-              if (!cardboardEnabled) enableCardboard();
-              updateVrButtonVisibility();
-            }
-          };
-          window.addEventListener('touchend', gestureHandler, { once: true });
-          window.addEventListener('click', gestureHandler, { once: true });
+          if (!cardboardEnabled && !(app.xr && app.xr.active)) {
+            enableCardboard();
+            updateVrButtonVisibility();
+          }
         }
       })();
     </script>
