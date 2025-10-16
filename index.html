@@ -204,42 +204,55 @@
           if (event.touches && event.touches.length > 0) return;
           const now = performance.now();
           if (ev.changedTouches && ev.changedTouches.length === 1 && (now - lastTapTime) < 280) {
-            gyroBase = null; // double-tap to recenter gyro
+            baseQuat = null; // double-tap to recenter gyro baseline
           }
           lastTapTime = now;
           touchActive = false; lastTouch = null;
           panActive = false; lastPan = null;
         });
 
-        // Device orientation (gyro) look for mobile when not in XR
+        // Device orientation (gyro) look for mobile when not in XR (quaternion-based)
         let gyroEnabled = false;
-        let gyroBase = null; // { alpha, beta }
-        function isLandscape(){
+        let baseQuat = null; // pc.Quat baseline
+        function getScreenOrientationRad() {
           const ang = (screen.orientation && typeof screen.orientation.angle === 'number') ? screen.orientation.angle : (typeof window.orientation === 'number' ? window.orientation : 0);
-          return Math.abs(ang) === 90;
+          return (ang || 0) * Math.PI / 180;
+        }
+        function quatFromAxisAngle(axis, angleRad) {
+          const q = new pc.Quat();
+          q.setFromAxisAngle(axis, angleRad * 180 / Math.PI);
+          return q;
+        }
+        function composeDeviceQuat(alphaDeg, betaDeg, gammaDeg, screenRad) {
+          // Convert to radians
+          const a = (alphaDeg || 0) * Math.PI / 180; // Z
+          const b = (betaDeg || 0) * Math.PI / 180;  // X
+          const g = (gammaDeg || 0) * Math.PI / 180; // Y
+          // Intrinsic ZXY order: q = Rz(a) * Rx(b) * Ry(g)
+          const qZ = quatFromAxisAngle(pc.Vec3.FORWARD, a);
+          const qX = quatFromAxisAngle(pc.Vec3.RIGHT, b);
+          const qY = quatFromAxisAngle(pc.Vec3.UP, g);
+          const qZX = new pc.Quat(); qZX.mul2(qZ, qX);
+          const q = new pc.Quat(); q.mul2(qZX, qY);
+          // Adjust for screen orientation (rotate around Z by -screenRad)
+          const qScreen = quatFromAxisAngle(pc.Vec3.FORWARD, -screenRad);
+          const out = new pc.Quat(); out.mul2(q, qScreen);
+          return out;
         }
         function handleOrientation(ev) {
           if (app.xr && app.xr.active) return;
           if (!gyroEnabled) return;
-          const { alpha, beta, gamma } = ev; // alpha: yaw, beta/gamma depend on orientation
+          const { alpha, beta, gamma } = ev;
           if (alpha == null || beta == null || gamma == null) return;
-          if (!gyroBase) gyroBase = { alpha, beta, gamma };
-          // Basic orientation compensation
-          let yaw, pitch;
-          if (isLandscape()) {
-            // Approximate mapping in landscape: use beta for yaw and -gamma for pitch relative to base
-            yaw = (beta - gyroBase.beta);
-            pitch = (-gamma) - (-gyroBase.gamma);
-          } else {
-            // Portrait: alpha ~ yaw, beta ~ pitch
-            yaw = (alpha - gyroBase.alpha);
-            if (yaw > 180) yaw -= 360; if (yaw < -180) yaw += 360;
-            pitch = (beta - gyroBase.beta);
-          }
-          // Apply to look variables (scale for sensitivity)
-          const gyroScale = 0.6; // tune if needed
-          targetLookY = yaw * gyroScale;
-          targetLookX = pc.math.clamp(pitch * gyroScale, -89, 89);
+          const current = composeDeviceQuat(alpha, beta, gamma, getScreenOrientationRad());
+          if (!baseQuat) baseQuat = current.clone();
+          const invBase = baseQuat.clone(); invBase.invert();
+          const rel = new pc.Quat(); rel.mul2(invBase, current);
+          const e = rel.getEulerAngles(); // XYZ order
+          // Map to yaw (Y) and pitch (X)
+          const gyroScale = 1.0;
+          targetLookY = e.y * gyroScale;
+          targetLookX = pc.math.clamp(e.x * gyroScale, -89, 89);
         }
         async function enableGyroLookIfPossible() {
           if (!(isMobile())) return;
