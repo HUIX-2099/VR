@@ -10,7 +10,7 @@
     <title>PlayCanvas VR Demo</title>
     <style>
       html, body { height: 100%; margin: 0; background: #202225; color: #e6e6e6; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-      #app { width: 100%; height: 100%; position: relative; overflow: hidden; }
+      #app { width: 100%; height: 100%; position: relative; overflow: hidden; display: none; }
       /* VR button now lives inside #panel and uses panel button styles */
       #note { position: absolute; right: 16px; bottom: 16px; opacity: .8; font-size: 12px; max-width: 320px; text-align: right; }
       #panel { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,.45); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.08); padding: 10px; border-radius: 10px; display: none; gap: 8px; width: 320px; }
@@ -26,10 +26,11 @@
       #lensMask { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 500; background:
         radial-gradient(circle at 25% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.05) 60%, rgba(0,0,0,0.25) 85%, rgba(0,0,0,0.6) 100%) 0 0/50% 100% no-repeat,
         radial-gradient(circle at 75% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.05) 60%, rgba(0,0,0,0.25) 85%, rgba(0,0,0,0.6) 100%) 0 0/100% 100% no-repeat; }
-      #vrFab { position: fixed; right: 16px; bottom: 16px; width: 48px; height: 48px; border-radius: 50%; border: none; background: #4f46e5; color: #fff; font-weight: 700; box-shadow: 0 6px 18px rgba(0,0,0,.25); z-index: 1000; display: none; }
+      #vrFab { position: fixed; right: 16px; bottom: 16px; width: 48px; height: 48px; border-radius: 50%; border: none; background: #4f46e5; color: #fff; font-weight: 700; box-shadow: 0 6px 18px rgba(0,0,0,.25); z-index: 1000; display: none !important; }
       #vrFab[disabled] { opacity: .6; }
     </style>
     <script src="https://code.playcanvas.com/playcanvas-stable.min.js"></script>
+    <script src="https://unpkg.com/aframe@1.5.0/dist/aframe.min.js"></script>
   </head>
   <body>
     <div id="app">
@@ -97,6 +98,55 @@
     </div>
     <button id="vrFab" aria-label="Enter VR" title="Enter VR">VR</button>
     <div id="lensMask"></div>
+
+    <!-- A-Frame scene for VR lenses and look-around -->
+    <a-scene id="aframeScene"
+             renderer="colorManagement: true"
+             vr-mode-ui="enabled: true"
+             device-orientation-permission-ui>
+      <a-assets>
+        <a-asset-item id="museum" src="./museum.glb"></a-asset-item>
+      </a-assets>
+
+      <a-entity id="rig" position="0 1.65 4">
+        <a-entity id="camera" camera look-controls wasd-controls="acceleration: 40"></a-entity>
+      </a-entity>
+
+      <a-entity light="type: directional; intensity: 1.2" position="1 2 1"></a-entity>
+      <a-entity gltf-model="#museum" position="0 0 0" scale="1 1 1"></a-entity>
+
+      <a-plane rotation="-90 0 0" width="50" height="50" color="#55CAA6"></a-plane>
+      <a-box position="0 1.25 0" color="#AAAAAA"></a-box>
+    </a-scene>
+
+    <script>
+      (function(){
+        const scene = document.getElementById('aframeScene');
+        function isMobile(){ return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent); }
+        async function tryEnterVR(){
+          try {
+            if (navigator.xr && await navigator.xr.isSessionSupported('immersive-vr')) {
+              await scene.enterVR(); return true;
+            }
+            await scene.enterVR(); return true;
+          } catch(e){ return false; }
+        }
+        scene.addEventListener('loaded', async () => {
+          if (isMobile()) {
+            const ok = await tryEnterVR();
+            if (!ok) {
+              const once = async () => {
+                window.removeEventListener('touchend', once);
+                window.removeEventListener('click', once);
+                await tryEnterVR();
+              };
+              window.addEventListener('touchend', once, { once: true });
+              window.addEventListener('click', once, { once: true });
+            }
+          }
+        });
+      })();
+    </script>
 
     <script>
       (function () {
