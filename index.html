@@ -18,6 +18,8 @@
       #panel input[type="range"] { width: 100%; }
       #panel small { opacity: .8; }
       canvas { touch-action: none; }
+      #vrFab { position: fixed; right: 16px; bottom: 16px; width: 48px; height: 48px; border-radius: 50%; border: none; background: #4f46e5; color: #fff; font-weight: 700; box-shadow: 0 6px 18px rgba(0,0,0,.25); z-index: 1000; display: none; }
+      #vrFab[disabled] { opacity: .6; }
     </style>
     <script src="https://code.playcanvas.com/playcanvas-stable.min.js"></script>
   </head>
@@ -85,6 +87,7 @@
         <input id="importFile" type="file" accept="application/json" style="display:none;" />
       </div>
     </div>
+    <button id="vrFab" aria-label="Enter VR" title="Enter VR">VR</button>
 
     <script>
       (function () {
@@ -554,6 +557,7 @@
 
         // XR setup
         const vrBtn = document.getElementById('vrBtn');
+        const vrFab = document.getElementById('vrFab');
         let xrSupported = false;
         function isMobile() {
           return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
@@ -561,9 +565,18 @@
         function updateVrButtonVisibility() {
           const active = !!(app.xr && app.xr.active) || !!cardboardEnabled;
           const show = xrSupported || isMobile();
-          vrBtn.hidden = !show || active;
-          vrBtn.disabled = !show;
-          vrBtn.textContent = active ? 'In VR' : (xrSupported ? 'Enter VR' : 'Enter Cardboard');
+          // Panel button
+          vrBtn.hidden = !show && !active; // show if show==true; hide if not show and not active
+          vrBtn.disabled = false;
+          vrBtn.textContent = active ? 'Exit' : (xrSupported ? 'Enter VR' : 'Enter Cardboard');
+          // Floating button (A-Frame-like)
+          if (active || show) {
+            vrFab.style.display = 'block';
+            vrFab.textContent = active ? 'Exit' : (xrSupported ? 'VR' : 'Card');
+            vrFab.title = active ? 'Exit' : (xrSupported ? 'Enter VR' : 'Enter Cardboard');
+          } else {
+            vrFab.style.display = 'none';
+          }
         }
 
         async function enterVr() {
@@ -576,14 +589,20 @@
           }
         }
 
-        vrBtn.addEventListener('click', async () => {
+        async function handleVrToggle() {
           if (xrSupported) {
-            await enterVr();
+            if (app.xr && app.xr.active) {
+              try { await app.xr.end(); } catch (e) { console.warn('Failed to end XR', e); }
+            } else {
+              await enterVr();
+            }
           } else {
             if (!cardboardEnabled) enableCardboard(); else disableCardboard();
             updateVrButtonVisibility();
           }
-        });
+        }
+        vrBtn.addEventListener('click', handleVrToggle);
+        vrFab.addEventListener('click', handleVrToggle);
 
         // XR events
         app.xr.on('start', () => {
