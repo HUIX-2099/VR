@@ -126,4 +126,73 @@
       root.setAttribute('sound-on-click', '');
     }
   });
+
+  // Auto-enter VR on mobile where possible. If a gesture is required, show a tap overlay.
+  AFRAME.registerComponent('auto-vr', {
+    schema: { enabled: { default: true }, delayMs: { default: 200 } },
+    init: function () {
+      const sceneEl = this.el.sceneEl;
+      const isMobile = AFRAME.utils.device.isMobile();
+      if (!this.data.enabled || !isMobile) return;
+
+      const tryEnter = () => {
+        // If already in VR, nothing to do
+        if (sceneEl.is('vr-mode')) return;
+        // Attempt enterVR; will reject if a user gesture is required
+        const ret = sceneEl.enterVR && sceneEl.enterVR();
+        if (ret && typeof ret.then === 'function') {
+          ret.then(() => cleanup(), () => showOverlay());
+        } else {
+          // Older A-Frame returns void; show overlay as fallback after short delay
+          setTimeout(showOverlay, 300);
+        }
+      };
+
+      let overlay;
+      const cleanup = () => {
+        if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        overlay = null;
+      };
+
+      const showOverlay = () => {
+        if (overlay) return;
+        overlay = document.createElement('div');
+        overlay.setAttribute('aria-label', 'Tap to enter VR');
+        overlay.style.position = 'fixed';
+        overlay.style.inset = '0';
+        overlay.style.background = 'rgba(9, 11, 15, 0.92)';
+        overlay.style.display = 'flex';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        overlay.style.zIndex = '9999';
+        overlay.style.userSelect = 'none';
+        overlay.style.webkitUserSelect = 'none';
+
+        const btn = document.createElement('button');
+        btn.textContent = 'Tap to enter VR';
+        btn.style.fontSize = '20px';
+        btn.style.padding = '16px 24px';
+        btn.style.borderRadius = '12px';
+        btn.style.border = '0';
+        btn.style.color = '#0b0e14';
+        btn.style.background = '#ffbd2e';
+        btn.style.fontWeight = '700';
+        btn.style.boxShadow = '0 10px 30px rgba(0,0,0,0.4)';
+        btn.addEventListener('click', () => {
+          const p = sceneEl.enterVR && sceneEl.enterVR();
+          if (p && typeof p.then === 'function') p.then(() => cleanup());
+          else cleanup();
+        }, { once: true });
+
+        overlay.appendChild(btn);
+        document.body.appendChild(overlay);
+      };
+
+      // Defer slightly to allow XR initialization
+      setTimeout(tryEnter, this.data.delayMs);
+
+      // If the user enters VR by other means, remove overlay
+      sceneEl.addEventListener('enter-vr', cleanup);
+    }
+  });
 })();
