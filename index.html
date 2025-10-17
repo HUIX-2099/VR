@@ -8,16 +8,17 @@
 
     <!-- A-Frame core -->
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <!-- A-Frame Extras (movement-controls, teleport-controls, etc.) -->
+    <script src="https://cdn.jsdelivr.net/npm/aframe-extras@6.1.1/dist/aframe-extras.min.js"></script>
 
     <!-- App code -->
     <link rel="stylesheet" href="style.css" />
     <script defer src="app.js"></script>
   </head>
   <body>
-    <a-scene renderer="colorManagement: true; physicallyCorrectLights: true" background="color: #202225" auto-vr>
+    <a-scene renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true; precision: high; sortObjects: true; alpha: false; powerPreference: high-performance; logarithmicDepthBuffer: true" background="color: #202225" auto-vr vr-quality="pixelRatioMultiplier: 2; maxPixelRatio: 3; anisotropy: 16" comfort-mode="snapAngle: 30; accel: 8; vignetteOpacity: 0.3">
       <!-- Assets -->
       <a-assets>
-        <a-asset-item id="museumModel" src="./museum.glb"></a-asset-item>
         <audio id="clickSnd" src="https://cdn.jsdelivr.net/gh/jshawl/AudioFX/sounds/click1.mp3"></audio>
       </a-assets>
 
@@ -26,10 +27,10 @@
       <a-entity light="type: directional; color: #ffffff; intensity: 0.8" position="3 10 5" rotation="-30 45 0"></a-entity>
 
       <!-- Environment fallback ground if model lacks one -->
-      <a-plane position="0 0 0" rotation="-90 0 0" width="100" height="100" color="#3a3d44" material="metalness:0.1; roughness:0.9" shadow="receive: true"></a-plane>
+      <a-plane class="floor" position="0 0 0" rotation="-90 0 0" width="100" height="100" color="#3a3d44" material="metalness:0.1; roughness:0.9" shadow="receive: true"></a-plane>
 
-      <!-- Museum Model -->
-      <a-entity id="museum" gltf-model="#museumModel" position="0 0 0" rotation="0 0 0" scale="1 1 1" shadow="cast: true; receive: true"></a-entity>
+      <!-- Museum Model (lazy) -->
+      <a-entity id="museum" lazy-gltf="src: ./museum.glb" position="0 0 0" rotation="0 0 0" scale="1 1 1" shadow="cast: true; receive: true"></a-entity>
 
       <!-- Player Rig -->
       <a-entity id="rig" position="0 1.6 3">
@@ -46,7 +47,7 @@
 
         <!-- VR Controllers with laser interaction -->
         <a-entity id="leftHand" laser-controls="hand: left" raycaster="objects: .interactable, .hotspot"></a-entity>
-        <a-entity id="rightHand" laser-controls="hand: right" raycaster="objects: .interactable, .hotspot"></a-entity>
+        <a-entity id="rightHand" laser-controls="hand: right" raycaster="objects: .interactable, .hotspot" teleport-controls="cameraRig: #rig; teleportOrigin: #camera; button: trigger; collisionEntities: .floor"></a-entity>
       </a-entity>
 
       <!-- UI: Help Panel -->

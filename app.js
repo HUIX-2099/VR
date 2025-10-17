@@ -195,4 +195,217 @@
       sceneEl.addEventListener('enter-vr', cleanup);
     }
   });
+
+  AFRAME.registerComponent('vr-quality', {
+    schema: {
+      pixelRatioMultiplier: { default: 1.6 },
+      maxPixelRatio: { default: 3 },
+      anisotropy: { default: 16 },
+      initialMultiplier: { default: 0.9 },
+      rampOnModelLoaded: { default: true }
+    },
+    init: function () {
+      const sceneEl = this.el.sceneEl;
+      const renderer = sceneEl.renderer;
+      const applyAniso = () => {
+        sceneEl.object3D.traverse((obj) => {
+          if (!obj.material) return;
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          mats.forEach((m) => {
+            ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap'].forEach((k) => {
+              if (m[k] && m[k].anisotropy != null) m[k].anisotropy = this.data.anisotropy;
+            });
+          });
+        });
+      };
+      const setPR = () => {
+        if (!renderer) return;
+        const target = Math.min(window.devicePixelRatio * this.data.pixelRatioMultiplier, this.data.maxPixelRatio);
+        renderer.setPixelRatio(target);
+        try { renderer.xr.setFoveation && renderer.xr.setFoveation(0); } catch (e) {}
+      };
+      const setPRLow = () => {
+        if (!renderer) return;
+        const target = Math.min(window.devicePixelRatio * this.data.initialMultiplier, this.data.maxPixelRatio);
+        renderer.setPixelRatio(target);
+      };
+      const onEnter = () => { setPR(); applyAniso(); };
+      const onExit = () => { if (renderer) renderer.setPixelRatio(window.devicePixelRatio || 1); };
+      sceneEl.addEventListener('enter-vr', onEnter);
+      sceneEl.addEventListener('enter-ar', onEnter);
+      sceneEl.addEventListener('exit-vr', onExit);
+      this._cleanup = () => {
+        sceneEl.removeEventListener('enter-vr', onEnter);
+        sceneEl.removeEventListener('enter-ar', onEnter);
+        sceneEl.removeEventListener('exit-vr', onExit);
+      };
+      // Start low during initial load for faster first contentful paint
+      setPRLow();
+      // Ramp to target once content is ready or when entering VR
+      if (this.data.rampOnModelLoaded) {
+        const bump = () => { setPR(); sceneEl.removeEventListener('model-loaded', bump); };
+        sceneEl.addEventListener('model-loaded', bump);
+      }
+      if (sceneEl.is('vr-mode')) onEnter();
+    },
+    remove: function () { this._cleanup && this._cleanup(); }
+  });
+
+  AFRAME.registerComponent('comfort-mode', {
+    schema: { snapAngle: { default: 30 }, accel: { default: 10 }, vignetteOpacity: { default: 0.35 } },
+    init: function () {
+      const sceneEl = this.el.sceneEl;
+      const rig = getRig();
+      const cam = getCamera();
+      if (cam) {
+        const vignette = document.createElement('a-entity');
+        vignette.setAttribute('geometry', 'primitive: ring; radiusInner: 0.25; radiusOuter: 0.6; segmentsTheta: 64');
+        vignette.setAttribute('material', `color: #000; opacity: ${this.data.vignetteOpacity}; transparent: true`);
+        vignette.setAttribute('position', '0 0 -0.35');
+        vignette.setAttribute('rotation', '0 0 0');
+        vignette.setAttribute('visible', 'false');
+        cam.appendChild(vignette);
+        this._vignette = vignette;
+      }
+      if (rig) {
+        const mover = rig.querySelector('[wasd-controls]') || rig;
+        try { mover.setAttribute('wasd-controls', `acceleration: ${this.data.accel}`); } catch (e) {}
+      }
+      let cooldown = 0;
+      const SNAP = THREE.MathUtils.degToRad(this.data.snapAngle);
+      const trySnap = (dir) => {
+        const now = performance.now();
+        if (now < cooldown) return;
+        cooldown = now + 180;
+        if (!rig) return;
+        const rot = rig.getAttribute('rotation');
+        rig.setAttribute('rotation', `${rot.x} ${rot.y + (dir > 0 ? THREE.MathUtils.radToDeg(SNAP) : -THREE.MathUtils.radToDeg(SNAP))} ${rot.z}`);
+      };
+      this._onKey = (e) => {
+        if (e.repeat) return;
+        if (e.key === 'e' || e.key === 'E') trySnap(1);
+        if (e.key === 'q' || e.key === 'Q') trySnap(-1);
+      };
+      this._onAxis = (e) => {
+        const ax = (e.detail && e.detail.axis) || [];
+        const x = ax[0] || 0;
+        if (x > 0.8) trySnap(1);
+        if (x < -0.8) trySnap(-1);
+      };
+      this._onEnterVR = () => { if (this._vignette) this._vignette.setAttribute('visible', 'true'); };
+      this._onExitVR = () => { if (this._vignette) this._vignette.setAttribute('visible', 'false'); };
+      window.addEventListener('keydown', this._onKey);
+      sceneEl.addEventListener('axismove', this._onAxis);
+      sceneEl.addEventListener('enter-vr', this._onEnterVR);
+      sceneEl.addEventListener('exit-vr', this._onExitVR);
+    },
+    remove: function () {
+      const sceneEl = this.el.sceneEl;
+      window.removeEventListener('keydown', this._onKey);
+      sceneEl.removeEventListener('axismove', this._onAxis);
+      sceneEl.removeEventListener('enter-vr', this._onEnterVR);
+      sceneEl.removeEventListener('exit-vr', this._onExitVR);
+      if (this._vignette && this._vignette.parentNode) this._vignette.parentNode.removeChild(this._vignette);
+    }
+  });
+
+  // Fullscreen loading overlay with percentage using THREE.DefaultLoadingManager
+  AFRAME.registerComponent('loading-overlay', {
+    schema: { text: { default: 'Loading…' }, autoHide: { default: true } },
+    init: function () {
+      const overlay = document.createElement('div');
+      overlay.style.position = 'fixed';
+      overlay.style.inset = '0';
+      overlay.style.background = '#0b0e14';
+      overlay.style.display = 'flex';
+      overlay.style.flexDirection = 'column';
+      overlay.style.alignItems = 'center';
+      overlay.style.justifyContent = 'center';
+      overlay.style.color = '#e5e7eb';
+      overlay.style.fontFamily = 'system-ui, Segoe UI, Roboto, Helvetica, Arial';
+      overlay.style.zIndex = '9998';
+
+      const title = document.createElement('div');
+      title.textContent = this.data.text;
+      title.style.fontSize = '18px';
+      title.style.marginBottom = '12px';
+
+      const barWrap = document.createElement('div');
+      barWrap.style.width = '66%';
+      barWrap.style.maxWidth = '420px';
+      barWrap.style.height = '8px';
+      barWrap.style.background = '#1f2430';
+      barWrap.style.borderRadius = '8px';
+      barWrap.style.overflow = 'hidden';
+
+      const bar = document.createElement('div');
+      bar.style.height = '100%';
+      bar.style.width = '0%';
+      bar.style.background = '#ffbd2e';
+      bar.style.transition = 'width 120ms linear';
+
+      const pct = document.createElement('div');
+      pct.textContent = '0%';
+      pct.style.marginTop = '10px';
+      pct.style.fontSize = '14px';
+      pct.style.color = '#cbd5e1';
+
+      barWrap.appendChild(bar);
+      overlay.appendChild(title);
+      overlay.appendChild(barWrap);
+      overlay.appendChild(pct);
+      document.body.appendChild(overlay);
+      this._overlay = overlay;
+      this._bar = bar;
+      this._pct = pct;
+
+      // Hook into Three.js loading manager
+      const manager = THREE.DefaultLoadingManager;
+      let itemsTotal = 0, itemsLoaded = 0;
+      const update = () => {
+        const p = itemsTotal ? Math.round((itemsLoaded / itemsTotal) * 100) : 0;
+        this._bar.style.width = `${p}%`;
+        this._pct.textContent = `${p}%`;
+      };
+      manager.onStart = (_url, loaded, total) => { itemsLoaded = loaded; itemsTotal = total; update(); };
+      manager.onProgress = (_url, loaded, total) => { itemsLoaded = loaded; itemsTotal = total; update(); };
+      manager.onError = (_url) => {};
+      manager.onLoad = () => {
+        if (this.data.autoHide) {
+          setTimeout(() => {
+            if (this._overlay && this._overlay.parentNode) this._overlay.parentNode.removeChild(this._overlay);
+            this._overlay = null;
+          }, 150);
+        }
+      };
+    },
+    remove: function () {
+      if (this._overlay && this._overlay.parentNode) this._overlay.parentNode.removeChild(this._overlay);
+    }
+  });
+
+  // Defer GLTF loading until after scene has initialized. Optional Draco/KTX2 support.
+  AFRAME.registerComponent('lazy-gltf', {
+    schema: {
+      src: { type: 'string' },
+      dracoDecoderPath: { type: 'string', default: '' },
+      ktx2TranscoderPath: { type: 'string', default: '' }
+    },
+    init: function () {
+      this.el.setAttribute('visible', 'false');
+      const sceneEl = this.el.sceneEl;
+      const doLoad = () => {
+        const parts = [];
+        if (this.data.dracoDecoderPath) parts.push(`dracoDecoderPath: ${this.data.dracoDecoderPath}`);
+        if (this.data.ktx2TranscoderPath) parts.push(`ktx2TranscoderPath: ${this.data.ktx2TranscoderPath}`);
+        parts.push(`src: url(${this.data.src})`);
+        this.el.setAttribute('gltf-model', parts.join('; '));
+        this.el.addEventListener('model-loaded', () => {
+          this.el.setAttribute('visible', 'true');
+        }, { once: true });
+      };
+      if (sceneEl.hasLoaded) doLoad();
+      else sceneEl.addEventListener('loaded', doLoad, { once: true });
+    }
+  });
 })();
