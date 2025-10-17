@@ -14,6 +14,46 @@
     }
   });
 
+  // Auto walk: continuously move the rig forward in the camera's facing direction.
+  AFRAME.registerComponent('auto-walk', {
+    schema: {
+      enabled: { default: true },
+      speed: { default: 1.2 }, // meters per second
+      vrOnly: { default: true },
+      toggleOnClick: { default: true }
+    },
+    init: function () {
+      this.walking = this.data.enabled;
+      this._last = null;
+      const sceneEl = this.el.sceneEl;
+      const cam = document.querySelector('#camera');
+      this._shouldRun = () => this.walking && (!this.data.vrOnly || sceneEl.is('vr-mode'));
+      this._onClick = () => { if (this.data.toggleOnClick) this.walking = !this.walking; };
+      sceneEl.addEventListener('click', this._onClick);
+      this._getForward = () => {
+        if (!cam) return new THREE.Vector3(0, 0, -1);
+        const dir = new THREE.Vector3();
+        cam.object3D.getWorldDirection(dir);
+        dir.y = 0; // keep on ground plane
+        if (dir.lengthSq() === 0) return new THREE.Vector3(0, 0, -1);
+        dir.normalize();
+        return dir;
+      };
+    },
+    tick: function (time, dt) {
+      if (!this._shouldRun()) return;
+      const delta = Math.min(100, dt) / 1000; // cap large dt spikes
+      const speed = this.data.speed;
+      const fwd = this._getForward();
+      const p = this.el.object3D.position;
+      p.x += fwd.x * speed * delta;
+      p.z += fwd.z * speed * delta;
+    },
+    remove: function () {
+      this.el.sceneEl.removeEventListener('click', this._onClick);
+    }
+  });
+
   // Add hover visual feedback to any entity with a material
   AFRAME.registerComponent('hoverable', {
     schema: { emissiveHover: { type: 'color', default: '#ffd166' }, intensity: { type: 'number', default: 0.9 } },
