@@ -1,74 +1,102 @@
-<!doctype html>
-<html lang="en">
+<html>
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1, minimum-scale=1" />
-    <title>VR Museum</title>
-    <meta name="description" content="A-Frame VR scene" />
-
-    <!-- A-Frame core -->
-    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-    <!-- A-Frame Extras (movement-controls, teleport-controls, etc.) -->
-    <script src="https://cdn.jsdelivr.net/npm/aframe-extras@6.1.1/dist/aframe-extras.min.js"></script>
-
-    <!-- App code -->
-    <link rel="stylesheet" href="style.css" />
-    <script defer src="app.js"></script>
+    <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
+    <style>
+      #posHud {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        padding: 6px 8px;
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font-family: monospace;
+        font-size: 14px;
+        line-height: 1.2;
+        border-radius: 4px;
+        z-index: 9999;
+        white-space: pre;
+        user-select: text;
+      }
+      #posTools { position: fixed; top: 80px; left: 10px; z-index: 10000; display: flex; gap: 6px; align-items: center; }
+      #glbPosInput { width: 260px; font-family: monospace; font-size: 13px; padding: 4px 6px; }
+      #copyGlbBtn { padding: 4px 8px; font-size: 13px; }
+    </style>
   </head>
   <body>
-    <a-scene renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true; precision: high; sortObjects: true; alpha: false; powerPreference: high-performance; logarithmicDepthBuffer: true" background="color: #202225" auto-vr vr-quality="pixelRatioMultiplier: 2; maxPixelRatio: 3; anisotropy: 16" comfort-mode="snapAngle: 30; accel: 8; vignetteOpacity: 0.3">
-      <!-- Assets -->
+    <div id="posHud"></div>
+    <div id="posTools">
+      <input id="camWorldInput" type="text" readonly value="position=\"0 0 0\"" />
+      <button id="copyCamBtn" type="button">Copy Camera</button>
+      <input id="rigWorldInput" type="text" readonly value="position=\"0 0 0\"" />
+      <button id="copyRigBtn" type="button">Copy Rig</button>
+      <input id="glbPosInput" type="text" readonly value="position=\"0 0 -3\"" />
+      <button id="copyGlbBtn" type="button">Copy GLB</button>
+    </div>
+    <a-scene show-pos>
       <a-assets>
-        <audio id="clickSnd" src="https://cdn.jsdelivr.net/gh/jshawl/AudioFX/sounds/click1.mp3"></audio>
+        <a-asset-item id="model" src="meausum.glb"></a-asset-item>
       </a-assets>
-
-      <!-- Lighting -->
-      <a-entity light="type: hemisphere; color: #ffffff; intensity: 0.6" position="0 10 0"></a-entity>
-      <a-entity light="type: directional; color: #ffffff; intensity: 0.8" position="3 10 5" rotation="-30 45 0"></a-entity>
-
-      <!-- Environment fallback ground if model lacks one -->
-      <a-plane class="floor" position="0 0 0" rotation="-90 0 0" width="100" height="100" color="#3a3d44" material="metalness:0.1; roughness:0.9" shadow="receive: true"></a-plane>
-
-      <!-- Museum Model (lazy) -->
-      <a-entity id="museum" lazy-gltf="src: ./museum.glb" position="0 0 0" rotation="0 0 0" scale="1 1 1" shadow="cast: true; receive: true"></a-entity>
-
-      <!-- Player Rig -->
-      <a-entity id="rig" position="0 1.6 3" auto-walk="vrOnly: true; speed: 1.2; toggleOnClick: true">
-        <a-entity id="camera" camera look-controls wasd-controls="acceleration: 20" position="0 0 0">
-          <!-- Desktop cursor -->
-          <a-entity id="cursor"
-                    cursor="fuse: false;"
-                    raycaster="objects: .interactable, .hotspot"
-                    position="0 0 -0.5"
-                    geometry="primitive: ring; radiusInner: 0.005; radiusOuter: 0.008"
-                    material="color: #fff; shader: flat">
-          </a-entity>
-        </a-entity>
-
-        <!-- VR Controllers with laser interaction -->
-        <a-entity id="leftHand" laser-controls="hand: left" raycaster="objects: .interactable, .hotspot"></a-entity>
-        <a-entity id="rightHand" laser-controls="hand: right" raycaster="objects: .interactable, .hotspot" teleport-controls="cameraRig: #rig; teleportOrigin: #camera; button: trigger; collisionEntities: .floor"></a-entity>
+      <!-- //player -->
+      <a-entity id="rig" position="0 1.2 0">
+        <a-entity camera look-controls wasd-controls="acceleration: 20" position="7.28 3.60 26.95"></a-entity>
       </a-entity>
-
-      <!-- UI: Help Panel -->
-      <a-entity id="helpPanel" position="0 2 -1.5" rotation="0 0 0">
-        <a-plane width="1.3" height="0.6" color="#111" opacity="0.8"></a-plane>
-        <a-entity text="value: WASD to move • Mouse to look • Click or trigger to interact; color: #fff; align: center; width: 1.3" position="0 0 0.01"></a-entity>
-      </a-entity>
-
-      <!-- Hotspots: click to move the rig to featured viewpoints -->
-      <a-entity class="hotspot" geometry="primitive: sphere; radius: 0.1" material="color: #ffbd2e; emissive: #ffbd2e; emissiveIntensity: 0.6"
-                position="2 1 -2" hotspot="to: 2 1.6 -2" hoverable sound-on-click></a-entity>
-      <a-entity class="hotspot" geometry="primitive: sphere; radius: 0.1" material="color: #ffbd2e; emissive: #ffbd2e; emissiveIntensity: 0.6"
-                position="-2 1 -4" hotspot="to: -2 1.6 -4" hoverable sound-on-click></a-entity>
-      <a-entity class="hotspot" geometry="primitive: sphere; radius: 0.1" material="color: #ffbd2e; emissive: #ffbd2e; emissiveIntensity: 0.6"
-                position="0 1 0" hotspot="to: 0 1.6 0" hoverable sound-on-click></a-entity>
-
-      <!-- Example interactive card -->
-      <a-entity position="0 1.5 -1.2" rotation="0 10 0" interactive-card="title: Welcome; body: Explore the museum. Click the yellow orbs to move."></a-entity>
-
-      <!-- Sky -->
-      <a-sky color="#1b1e23"></a-sky>
+      <a-entity id="glb" gltf-model="#model" position="0 0 -3" scale="2.5 2.5 2.5"></a-entity>
+      <a-sky color="orange"></a-sky>
     </a-scene>
+    <script>
+      AFRAME.registerComponent('show-pos', {
+        init: function () {
+          this.hud = document.getElementById('posHud');
+          this.rig = document.getElementById('rig');
+          this.glb = document.getElementById('glb');
+          this.cam = this.el.querySelector('[camera]');
+          // Vectors may require THREE to be ready; guard it
+          this._vCam = (window.THREE && new THREE.Vector3()) || {x:0,y:0,z:0};
+          this._vRig = (window.THREE && new THREE.Vector3()) || {x:0,y:0,z:0};
+          this._vGlb = (window.THREE && new THREE.Vector3()) || {x:0,y:0,z:0};
+          // Copy helpers
+          this.glbPosInput = document.getElementById('glbPosInput');
+          this.camWorldInput = document.getElementById('camWorldInput');
+          this.rigWorldInput = document.getElementById('rigWorldInput');
+          var attachCopy = (btnId, inputEl) => {
+            var btn = document.getElementById(btnId);
+            if (!btn || !inputEl) return;
+            btn.addEventListener('click', () => {
+              var text = inputEl.value;
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text);
+              } else {
+                inputEl.select();
+                document.execCommand('copy');
+              }
+            });
+          };
+          attachCopy('copyGlbBtn', this.glbPosInput);
+          attachCopy('copyCamBtn', this.camWorldInput);
+          attachCopy('copyRigBtn', this.rigWorldInput);
+        },
+        tick: function () {
+          if (!this.hud) return;
+          // If camera not found yet (DOM not fully parsed), try again
+          if (!this.cam) this.cam = this.el.querySelector('[camera]');
+          if (this.cam && this.cam.object3D) this.cam.object3D.getWorldPosition(this._vCam);
+          if (this.rig && this.rig.object3D) this.rig.object3D.getWorldPosition(this._vRig);
+          if (this.glb && this.glb.object3D) this.glb.object3D.getWorldPosition(this._vGlb);
+          var fmt = function (v) { return v.x.toFixed(2) + ' ' + v.y.toFixed(2) + ' ' + v.z.toFixed(2); };
+          this.hud.textContent = 'camera world="' + fmt(this._vCam) + '"\n'
+            + 'rig world="' + fmt(this._vRig) + '"\n'
+            + 'glb world="' + fmt(this._vGlb) + '"';
+          // Update copyable GLB attribute string
+          if (this.glbPosInput) {
+            var localGlb = this.glb ? this.glb.getAttribute('position') : {x:0,y:0,z:0};
+            this.glbPosInput.value = 'position="' + localGlb.x.toFixed(2) + ' ' + localGlb.y.toFixed(2) + ' ' + localGlb.z.toFixed(2) + '"';
+          }
+          // Update copyable camera and rig world positions
+          var toAttr = (v) => 'position="' + v.x.toFixed(2) + ' ' + v.y.toFixed(2) + ' ' + v.z.toFixed(2) + '"';
+          if (this.camWorldInput) this.camWorldInput.value = toAttr(this._vCam);
+          if (this.rigWorldInput) this.rigWorldInput.value = toAttr(this._vRig);
+        }
+      });
+    </script>
   </body>
 </html>
