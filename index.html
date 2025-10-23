@@ -38,7 +38,8 @@
       </a-assets>
       <!-- //player -->
       <a-entity id="rig" position="0 1.2 0">
-        <a-entity camera look-controls wasd-controls="acceleration: 20" position="7.28 3.60 26.95"></a-entity>
+        <a-entity camera look-controls wasd-controls="acceleration: 20" position="7.28 3.60 26.95" cursor="rayOrigin: mouse" raycaster="objects: .interactable; far: 10"></a-entity>
+        <a-entity id="menu" vr-menu></a-entity>
       </a-entity>
       <a-entity id="glb" gltf-model="#model" position="0 0 -3" scale="2.5 2.5 2.5"></a-entity>
       <a-sky color="orange"></a-sky>
@@ -95,6 +96,50 @@
           var toAttr = (v) => 'position="' + v.x.toFixed(2) + ' ' + v.y.toFixed(2) + ' ' + v.z.toFixed(2) + '"';
           if (this.camWorldInput) this.camWorldInput.value = toAttr(this._vCam);
           if (this.rigWorldInput) this.rigWorldInput.value = toAttr(this._vRig);
+        }
+      });
+      AFRAME.registerComponent('vr-menu', {
+        init: function () {
+          var sceneEl = this.el.sceneEl;
+          this.cam = sceneEl && sceneEl.querySelector('[camera]');
+          var panel = document.createElement('a-entity');
+          panel.setAttribute('geometry', {primitive:'plane', width:0.8, height:0.42});
+          panel.setAttribute('material', {color:'#222', opacity:0.9});
+          this.el.appendChild(panel);
+          var btn1 = document.createElement('a-entity');
+          btn1.setAttribute('class', 'interactable');
+          btn1.setAttribute('geometry', {primitive:'plane', width:0.34, height:0.16});
+          btn1.setAttribute('material', {color:'#4a90e2'});
+          btn1.setAttribute('position', {x:-0.22, y:0, z:0.01});
+          btn1.setAttribute('text', {value:'Action 1', align:'center', color:'#fff', width:1});
+          this.el.appendChild(btn1);
+          var btn2 = document.createElement('a-entity');
+          btn2.setAttribute('class', 'interactable');
+          btn2.setAttribute('geometry', {primitive:'plane', width:0.34, height:0.16});
+          btn2.setAttribute('material', {color:'#50e3c2'});
+          btn2.setAttribute('position', {x:0.22, y:0, z:0.01});
+          btn2.setAttribute('text', {value:'Action 2', align:'center', color:'#000', width:1});
+          this.el.appendChild(btn2);
+          var hoverIn = function(){ this.setAttribute('scale', {x:1.05,y:1.05,z:1}); };
+          var hoverOut = function(){ this.setAttribute('scale', {x:1,y:1,z:1}); };
+          [btn1, btn2].forEach(function(b){ b.addEventListener('mouseenter', hoverIn); b.addEventListener('mouseleave', hoverOut); });
+          var sky = sceneEl && sceneEl.querySelector('a-sky');
+          btn1.addEventListener('click', function(){ if (sky){ sky.setAttribute('color', sky.getAttribute('color') === 'orange' ? '#222' : 'orange'); } });
+          var glb = document.getElementById('glb');
+          btn2.addEventListener('click', function(){ if (glb){ var p = glb.getAttribute('position'); glb.setAttribute('position', {x:p.x, y:p.y, z:p.z - 0.2}); } });
+          this._v = (window.THREE && new THREE.Vector3()) || {x:0,y:0,z:0};
+        },
+        tick: function(){
+          if (!this.cam || !this.cam.object3D) return;
+          var camObj = this.cam.object3D;
+          var dir = new THREE.Vector3();
+          camObj.getWorldDirection(dir);
+          var pos = new THREE.Vector3();
+          camObj.getWorldPosition(pos);
+          var dist = 1.2;
+          var target = pos.clone().add(dir.multiplyScalar(dist));
+          this.el.object3D.position.copy(target);
+          this.el.object3D.lookAt(pos);
         }
       });
     </script>
